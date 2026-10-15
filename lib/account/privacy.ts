@@ -159,6 +159,17 @@ export async function exportUserData(userId: string) {
     account: user,
     servers,
     sites,
+    gameServers: await db
+      .select({
+        id: schema.gameServers.id,
+        name: schema.gameServers.name,
+        address: schema.gameServers.address,
+        suspended: schema.gameServers.suspended,
+        expiresAt: schema.gameServers.expiresAt,
+        createdAt: schema.gameServers.createdAt,
+      })
+      .from(schema.gameServers)
+      .where(eq(schema.gameServers.userId, userId)),
     tickets: tickets.map((t) => ({
       number: t.number,
       subject: t.subject,
@@ -173,13 +184,32 @@ export async function exportUserData(userId: string) {
     activity,
     wallet: { transactions: wallet, couponRedemptions: redemptions, giftCards },
     legalAcceptances: acceptances,
+    billingProfile:
+      (
+        await db
+          .select()
+          .from(schema.billingProfiles)
+          .where(eq(schema.billingProfiles.userId, userId))
+      )[0] ?? null,
+    invoices: await db
+      .select({
+        number: schema.invoices.number,
+        type: schema.invoices.type,
+        status: schema.invoices.status,
+        currency: schema.invoices.currency,
+        totalCents: schema.invoices.totalCents,
+        issuedAt: schema.invoices.issuedAt,
+        paidAt: schema.invoices.paidAt,
+      })
+      .from(schema.invoices)
+      .where(eq(schema.invoices.userId, userId)),
     sessions,
   }
 }
 
 /** Raison pour laquelle le compte ne peut pas encore être supprimé. */
 export async function deletionBlocker(user: { id: string; role: string }) {
-  const [[{ servers }], [{ sites }]] = await Promise.all([
+  const [[{ servers }], [{ sites }], [{ games }]] = await Promise.all([
     db
       .select({ servers: count() })
       .from(schema.servers)
@@ -188,9 +218,13 @@ export async function deletionBlocker(user: { id: string; role: string }) {
       .select({ sites: count() })
       .from(schema.sites)
       .where(eq(schema.sites.userId, user.id)),
+    db
+      .select({ games: count() })
+      .from(schema.gameServers)
+      .where(eq(schema.gameServers.userId, user.id)),
   ])
-  if (servers > 0 || sites > 0) {
-    return `Supprime d'abord tes services (${servers} VPS, ${sites} site(s)) : ils occupent des ressources réelles.`
+  if (servers > 0 || sites > 0 || games > 0) {
+    return `Supprime d'abord tes services (${servers} VPS, ${sites} site(s), ${games} serveur(s) de jeu) : ils occupent des ressources réelles.`
   }
   if (user.role === "admin") {
     const [{ n }] = await db
@@ -238,11 +272,33 @@ export async function eraseUser(userId: string) {
       .set({ redeemedBy: null })
       .where(eq(schema.giftCards.redeemedBy, userId))
 
+    // Factures, paiements et commandes : conservation légale (10 ans) ; le
+    // lien au compte disparaît, l'acheteur reste figé sur la facture.
+    await tx
+      .update(schema.invoices)
+      .set({ userId: null })
+      .where(eq(schema.invoices.userId, userId))
+    await tx
+      .update(schema.payments)
+      .set({ userId: null })
+      .where(eq(schema.payments.userId, userId))
+    await tx
+      .update(schema.orders)
+      .set({ userId: null })
+      .where(eq(schema.orders.userId, userId))
+    await tx
+      .update(schema.emailQueue)
+      .set({ userId: null })
+      .where(eq(schema.emailQueue.userId, userId))
+
     for (const table of [
       schema.notifications,
       schema.walletTransactions,
       schema.couponRedemptions,
       schema.legalAcceptances,
+      schema.billingProfiles,
+      schema.clientNotes,
+      schema.passwordResets,
       schema.sessions,
     ]) {
       await tx.delete(table).where(eq(table.userId, userId))

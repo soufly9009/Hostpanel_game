@@ -113,6 +113,7 @@ export async function adjustBalanceAction(
     montant: amount * direction,
   })
   revalidatePath("/support/wallet")
+  revalidatePath(`/admin/users/${userId.data}`)
   return {
     ok: true,
     notice: res.duplicate
@@ -294,10 +295,16 @@ export async function saveWalletSettingsAction(
 ): Promise<WalletState> {
   const admin = await requireAdmin()
   const bonus = parseCredits(formData.get("signupBonus") || "0")
+  const referral = parseCredits(formData.get("referralBonus") || "0")
   if (bonus === null || bonus < 0) return { error: "Bonus invalide." }
+  if (referral === null || referral < 0)
+    return { error: "Bonus de parrainage invalide." }
   const ok = await saveWalletSettings({
     billingEnabled: formData.get("billingEnabled") !== null,
     signupBonusCents: bonus,
+    referralBonusCents: referral,
+    referralTrigger:
+      formData.get("referralTrigger") === "signup" ? "signup" : "first_payment",
   })
   if (!ok) return { error: "Réglages invalides." }
   auditSensitive(admin, "Réglages des crédits modifiés", {

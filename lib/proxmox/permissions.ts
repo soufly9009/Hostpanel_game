@@ -2,7 +2,12 @@ import "server-only"
 
 import { env, proxmoxConfigured } from "@/lib/env"
 
-import { listNodes, ProxmoxError, proxmoxRequest } from "./client"
+import {
+  listNodes,
+  ProxmoxError,
+  proxmoxRawRequest,
+  proxmoxRequest,
+} from "./client"
 
 /**
  * Audit des droits du jeton API Proxmox.
@@ -187,11 +192,14 @@ export async function checkProxmoxPermissions(
   if (!node) return { ...base, error: "Aucun nœud trouvé dans le cluster." }
   base.node = node
 
+  // Les lectures suivantes peuvent être refusées sans que ce soit une panne
+  // (l'audit l'affiche) : requêtes non journalisées, aucune alerte Discord.
+
   // Séparation de privilèges : un jeton « privsep » n'hérite pas de son utilisateur.
   const [tokenUser, tokenName] = (env.PROXMOX_TOKEN_ID ?? "").split("!")
   if (tokenUser && tokenName) {
     try {
-      const t = await proxmoxRequest<{ privsep?: number | boolean }>(
+      const t = await proxmoxRawRequest<{ privsep?: number | boolean }>(
         "GET",
         `/access/users/${encodeURIComponent(tokenUser)}/token/${encodeURIComponent(tokenName)}`
       )
@@ -211,7 +219,7 @@ export async function checkProxmoxPermissions(
   await Promise.all(
     paths.map(async (path) => {
       try {
-        const res = await proxmoxRequest<
+        const res = await proxmoxRawRequest<
           Record<string, Record<string, number>>
         >("GET", "/access/permissions", { path })
         effective.set(path, res?.[path] ?? {})
@@ -252,24 +260,31 @@ export async function checkProxmoxPermissions(
 
   base.probes = await Promise.all([
     probe("Lister les VM / templates", async () => {
-      const r = await proxmoxRequest<unknown[]>("GET", "/cluster/resources", {
-        type: "vm",
-      })
+      const r = await proxmoxRawRequest<unknown[]>(
+        "GET",
+        "/cluster/resources",
+        {
+          type: "vm",
+        }
+      )
       return `${r.length} VM visible(s)`
     }),
     probe("Lister les stockages du nœud", async () => {
-      const r = await proxmoxRequest<unknown[]>("GET", `/nodes/${node}/storage`)
+      const r = await proxmoxRawRequest<unknown[]>(
+        "GET",
+        `/nodes/${node}/storage`
+      )
       return `${r.length} stockage(s)`
     }),
     probe("Lister les ponts réseau", async () => {
-      const r = await proxmoxRequest<{ type: string }[]>(
+      const r = await proxmoxRawRequest<{ type: string }[]>(
         "GET",
         `/nodes/${node}/network`
       )
       return `${r.filter((i) => i.type === "bridge" || i.type === "OVSBridge").length} pont(s)`
     }),
     probe("Réserver un VMID", async () => {
-      const id = await proxmoxRequest<string>("GET", "/cluster/nextid")
+      const id = await proxmoxRawRequest<string>("GET", "/cluster/nextid")
       return `Prochain VMID : ${id}`
     }),
   ])

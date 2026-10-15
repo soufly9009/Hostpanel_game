@@ -73,3 +73,22 @@ la même information est disponible via `GET /api/admin/proxmox/permissions`.
 - `lib/auth/` — inscription, connexion, sessions
 - `lib/db/schema.ts` — users, sessions, plans, servers
 - `app/(client)/` — espace client ; `app/(admin)/admin/` — administration
+
+## Serveurs de jeu (Pterodactyl)
+
+Les clients commandent et gèrent leurs serveurs de jeu depuis le panel
+(`/games`) : démarrage/arrêt, console en direct, commandes, renouvellement.
+Ils n'ont **aucun accès** à Pterodactyl : tous les serveurs appartiennent à un
+compte de service et sont pilotés par l'API.
+
+| Variable | Valeur |
+| --- | --- |
+| `PTERODACTYL_URL` | `https://game.exemple.com` |
+| `PTERODACTYL_APP_KEY` | clé Application `ptla_…` (Admin → Application API : Servers, Nests, Locations, Allocations, Nodes, Users en lecture/écriture) |
+| `PTERODACTYL_CLIENT_KEY` | clé Client `ptlc_…` créée depuis un compte **administrateur** Pterodactyl |
+| `PTERODACTYL_OWNER_ID` | identifiant du compte Pterodactyl propriétaire des serveurs |
+| `PTERODACTYL_SERVER_LIMIT` | serveurs max par client (défaut 2) |
+
+Les offres se créent dans `/admin/games` (egg, emplacement, ressources, prix).
+Les ports sont attribués automatiquement : l'emplacement choisi doit avoir des
+allocations libres.

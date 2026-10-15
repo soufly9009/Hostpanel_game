@@ -210,11 +210,16 @@ export function StaffReplyForm({
   canReply,
   canInternal,
   canAi,
+  canned = [],
+  customerName = "",
 }: {
   ticketId: string
   canReply: boolean
   canInternal: boolean
   canAi: boolean
+  /** Réponses prédéfinies insérables. */
+  canned?: { id: string; title: string; body: string }[]
+  customerName?: string
 }) {
   const router = useRouter()
   const [text, setText] = useState("")
@@ -265,6 +270,26 @@ export function StaffReplyForm({
       </label>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
+        {canned.length > 0 && (
+          <select
+            aria-label="Insérer une réponse prédéfinie"
+            value=""
+            onChange={(e) => {
+              const c = canned.find((x) => x.id === e.target.value)
+              if (!c) return
+              const body = c.body.replace(/\{\{\s*name\s*\}\}/g, customerName)
+              setText((t) => (t.trim() ? `${t.trimEnd()}\n\n${body}` : body))
+            }}
+            className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+          >
+            <option value="">Réponse prédéfinie…</option>
+            {canned.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+              </option>
+            ))}
+          </select>
+        )}
         {canReply && canInternal && (
           <label className="flex items-center gap-2">
             <input

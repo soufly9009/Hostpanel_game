@@ -9,7 +9,12 @@ import { listPublicDocuments } from "@/lib/legal/service"
 export const metadata = { title: "Inscription" }
 export const dynamic = "force-dynamic"
 
-export default async function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ ref?: string }>
+}) {
+  const ref = ((await searchParams).ref ?? "").trim().slice(0, 32)
   const user = await getCurrentUser()
   if (user) redirect(homeFor(user.role))
   if (!(await isInstalled())) redirect("/install/setup")
@@ -26,7 +31,12 @@ export default async function Page() {
   return (
     <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
       <div className="w-full max-w-sm">
-        <AuthForm mode="register" action={register} legal={legal} />
+        <AuthForm
+          mode="register"
+          action={register}
+          legal={legal}
+          referral={ref || undefined}
+        />
       </div>
     </div>
   )

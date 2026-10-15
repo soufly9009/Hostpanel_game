@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation"
 
 import { AppShell } from "@/components/app-shell"
+import { ImpersonationBanner } from "@/components/client-admin-controls"
 import { MaintenanceBanners } from "@/components/maintenance-banner"
-import { requireUser } from "@/lib/auth/session"
+import { isImpersonating, requireUser } from "@/lib/auth/session"
 import { pendingAcceptances } from "@/lib/legal/service"
 import { unreadCount } from "@/lib/notifications"
 
@@ -33,6 +34,7 @@ export default async function ClientLayout({
       }
       unread={unread}
     >
+      {(await isImpersonating()) && <ImpersonationBanner email={user.email} />}
       <MaintenanceBanners />
       {children}
     </AppShell>

@@ -462,6 +462,16 @@ export default async function HomePage() {
                 </Link>
               </li>
               <li>
+                <Link className="hover:text-foreground" href="/news">
+                  Annonces
+                </Link>
+              </li>
+              <li>
+                <Link className="hover:text-foreground" href="/help">
+                  Aide
+                </Link>
+              </li>
+              <li>
                 <Link className="hover:text-foreground" href="/legal/cgu">
                   CGU
                 </Link>

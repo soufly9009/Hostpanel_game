@@ -41,3 +41,10 @@ next-env.d.ts
 
 # base de données locale, sauvegardes, code d'installation
 /data
+# toute base SQLite, où qu'elle soit (journaux WAL compris)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

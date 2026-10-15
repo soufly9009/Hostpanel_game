@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 
+import { CancellationBox } from "@/components/cancellation-controls"
 import { FirewallPanel } from "@/components/firewall-panel"
 import { PageHeader, Section, StatusBadge } from "@/components/kit"
 import { NetworkPanel } from "@/components/network-panel"
@@ -60,6 +61,15 @@ export default async function ServerPage({
     notFound()
   }
   const { server, plan } = row
+  const [pendingCancel] = await db
+    .select({ id: schema.cancellationRequests.id })
+    .from(schema.cancellationRequests)
+    .where(
+      and(
+        eq(schema.cancellationRequests.serviceId, server.id),
+        eq(schema.cancellationRequests.status, "pending")
+      )
+    )
 
   const tab = TABS.some((t) => t.id === sp.tab) ? sp.tab! : "overview"
   const tf: Timeframe = TIMEFRAMES.includes(sp.tf as Timeframe)
@@ -248,6 +258,17 @@ export default async function ServerPage({
             templates={plan ? allowedTemplates(plan) : []}
             current={server.os}
             disabled={server.suspended || !plan}
+          />
+        </Section>
+      )}
+      {tab === "settings" && (
+        <Section title="Annuler le service" tone="danger">
+          <CancellationBox
+            serviceType="vps"
+            serviceId={server.id}
+            pendingId={pendingCancel?.id ?? null}
+            scheduled={server.cancelAtPeriodEnd}
+            expiresAt={server.expiresAt?.toISOString() ?? null}
           />
         </Section>
       )}

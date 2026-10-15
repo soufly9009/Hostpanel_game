@@ -65,9 +65,12 @@ async function request<T = unknown>(
     // Une alerte par panne (dédupliquée 15 min) : les lectures périodiques
     // de l'interface ne produisent pas de rafale.
     if (isConnectivityError(e)) {
+      const denied = e instanceof ProxmoxError && e.status === 403
       void logError({
         category: "proxmox",
-        title: "Erreur de connexion à Proxmox",
+        title: denied
+          ? "Permission refusée par Proxmox"
+          : "Erreur de connexion à Proxmox",
         service: "Proxmox",
         action: "appel API",
         result: "failure",
@@ -724,4 +727,4 @@ export async function checkProxmoxConnection() {
 }
 
 /** Accès bas niveau pour les modules internes (audit des permissions). */
-export { request as proxmoxRequest }
+export { request as proxmoxRequest, rawRequest as proxmoxRawRequest }

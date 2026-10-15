@@ -4,7 +4,11 @@ import { and, eq, isNotNull, isNull, lte, or } from "drizzle-orm"
 
 import { errorText, logError, logWarning } from "@/lib/discord/logging"
 import { db, schema } from "@/lib/db"
-import { env } from "@/lib/env"
+import { env, pterodactylConfigured } from "@/lib/env"
+import { removeService } from "@/lib/cancellations/service"
+import { processGameExpiries } from "@/lib/games/renewals"
+import { links, queueUserEmail } from "@/lib/mail/service"
+import { emitEvent } from "@/lib/webhooks/service"
 import { destroyServer, setSuspended } from "@/lib/provision"
 
 /**
@@ -122,6 +126,12 @@ export async function runRenewalCheck(
     }
 
     try {
+      // Annulation programmée : suppression à l'échéance, sans suspension.
+      if (s.cancelAtPeriodEnd) {
+        await removeService("vps", s.id)
+        result.deleted++
+        continue
+      }
       let reason = s.suspendReason
 
       // 1. Échéance dépassée : suspension (sauf si l'admin l'a déjà suspendu).
@@ -133,6 +143,17 @@ export async function runRenewalCheck(
           .where(eq(schema.servers.id, s.id))
         reason = "expired"
         result.suspended++
+        void emitEvent("service.suspended", {
+          type: "vps",
+          serviceId: s.id,
+          userId: s.userId,
+          reason: "expired",
+        })
+        await queueUserEmail(s.userId, "service_suspended", {
+          service: s.name,
+          reason: "échéance dépassée",
+          panelUrl: links.panel(),
+        })
         void logWarning({
           category: "renewals",
           title: "VPS suspendu : échéance dépassée",
@@ -177,6 +198,20 @@ export async function runRenewalCheck(
         meta: { vps: s.id },
         dedupeKey: `renewal-fail:${s.id}`,
       })
+    }
+  }
+
+  // Serveurs de jeu (Pterodactyl) : mêmes règles.
+  if (pterodactylConfigured) {
+    try {
+      const games = await processGameExpiries(now, graceMs, checkEveryMs())
+      result.checked += games.checked
+      result.suspended += games.suspended
+      result.deleted += games.deleted
+      result.expiringSoon += games.expiringSoon
+      result.errors.push(...games.errors)
+    } catch (e) {
+      result.errors.push(`Serveurs de jeu : ${errorText(e)}`)
     }
   }
 

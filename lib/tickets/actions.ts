@@ -11,8 +11,9 @@ import { can } from "@/lib/auth/permissions"
 import { isStaffRole } from "@/lib/auth/roles"
 import { requireUser } from "@/lib/auth/session"
 import { db, schema } from "@/lib/db"
+import { links, queueUserEmail } from "@/lib/mail/service"
 
-import { MAX_BODY, MAX_SUBJECT } from "./labels"
+import { MAX_BODY, MAX_SUBJECT, ticketRef } from "./labels"
 import {
   addMessage,
   createTicket,
@@ -166,6 +167,13 @@ export async function staffReplyAction(
     body: b.data,
     internal,
   })
+  if (!internal) {
+    await queueUserEmail(ctx.ticket.userId, "ticket_reply", {
+      ticketRef: ticketRef(ctx.ticket.number),
+      subject: ctx.ticket.subject,
+      ticketUrl: links.ticket(ctx.ticket.id),
+    })
+  }
   // Auto-assignation à la première réponse publique.
   if (!internal && !ctx.ticket.assignedTo) {
     await db

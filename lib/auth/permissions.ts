@@ -44,6 +44,8 @@ const SYSTEM_ROLES = [
       "wallet.view",
       "wallet.adjust",
       "coupons.manage",
+      "billing.view",
+      "billing.manage",
       "users.view",
     ],
   },

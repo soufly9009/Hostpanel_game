@@ -7,6 +7,8 @@ import { daysUntil, isPast } from "@/lib/expiry"
 import { renewServer } from "@/lib/servers/actions"
 
 export function RenewBox({
+  renew = renewServer,
+  noun = "VPS",
   serverId,
   expiresAt,
   suspendedForExpiry,
@@ -14,6 +16,10 @@ export function RenewBox({
   periodDays,
   checkEveryDays,
 }: {
+  /** Action de renouvellement (VPS par défaut). */
+  renew?: (id: string) => Promise<{ error?: string } | undefined>
+  /** Libellé du service (« VPS », « serveur »). */
+  noun?: string
   /** ISO ; date du prochain renouvellement permis (1 par période). */
   nextRenewalAt: string | null
   serverId: string
@@ -49,7 +55,7 @@ export function RenewBox({
         <p className="font-medium">
           {expired
             ? suspendedForExpiry
-              ? "Expiré — VPS suspendu"
+              ? `Expiré — ${noun} suspendu`
               : "Échéance dépassée — suspension à la prochaine vérification"
             : `Expire dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}`}
         </p>
@@ -80,7 +86,7 @@ export function RenewBox({
           onClick={() => {
             setError(null)
             start(async () => {
-              const res = await renewServer(serverId)
+              const res = await renew(serverId)
               if (res?.error) setError(res.error)
             })
           }}

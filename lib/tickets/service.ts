@@ -5,6 +5,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { aiConfigured, generateTicketReply } from "@/lib/ai/openrouter"
 import { can } from "@/lib/auth/permissions"
 import { db, schema } from "@/lib/db"
+import { emitEvent } from "@/lib/webhooks/service"
 import { isUniqueViolation } from "@/lib/db/errors"
 import { logInfo, logWarning } from "@/lib/discord/logging"
 import { notify } from "@/lib/notifications"
@@ -99,6 +100,14 @@ export async function createTicket(input: NewTicketInput) {
       catégorie: ticket.category,
     },
     dedupeKey: `ticket-new:${ticket.id}`,
+  })
+
+  void emitEvent("ticket.created", {
+    ticketId: ticket.id,
+    number: ticket.number,
+    userId: input.userId,
+    priority: ticket.priority,
+    category: ticket.category,
   })
 
   // Réponse automatique en arrière-plan : n'attend jamais l'IA.

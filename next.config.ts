@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
     "/admin/migrations": ["./drizzle/**/*"],
   },
   // ssh2 charge des modules natifs optionnels : ne pas le bundler.
-  serverExternalPackages: ["ssh2"],
+  serverExternalPackages: ["ssh2", "nodemailer"],
 }
 
 export default nextConfig

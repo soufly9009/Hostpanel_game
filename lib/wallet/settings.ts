@@ -12,12 +12,18 @@ const settingsSchema = z.object({
   billingEnabled: z.boolean(),
   /** Crédits offerts à l'inscription (0 = aucun). */
   signupBonusCents: z.number().int().min(0).max(100_000_000),
+  /** Bonus versé au parrain (0 = parrainage désactivé). */
+  referralBonusCents: z.number().int().min(0).max(100_000_000),
+  /** Quand le bonus est versé : inscription du filleul ou 1re facture réglée. */
+  referralTrigger: z.enum(["signup", "first_payment"]),
 })
 export type WalletSettings = z.infer<typeof settingsSchema>
 
 export const DEFAULT_WALLET_SETTINGS: WalletSettings = {
   billingEnabled: false,
   signupBonusCents: 0,
+  referralBonusCents: 0,
+  referralTrigger: "first_payment",
 }
 
 export async function getWalletSettings(): Promise<WalletSettings> {
@@ -26,7 +32,11 @@ export async function getWalletSettings(): Promise<WalletSettings> {
       .select()
       .from(schema.appSettings)
       .where(eq(schema.appSettings.key, KEY))
-    const parsed = settingsSchema.safeParse(row?.value)
+    // Réglages enregistrés avant l'ajout d'un champ : complétés par les défauts.
+    const parsed = settingsSchema.safeParse({
+      ...DEFAULT_WALLET_SETTINGS,
+      ...(row?.value as object | undefined),
+    })
     if (parsed.success) return parsed.data
   } catch {
     // table absente : défauts

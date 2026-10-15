@@ -2,8 +2,9 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { and, eq } from "drizzle-orm"
 
-import { PageHeader, StatusBadge } from "@/components/kit"
+import { PageHeader, Section, StatusBadge } from "@/components/kit"
 import { CustomerReplyForm } from "@/components/ticket-forms"
+import { RatingForm, Stars } from "@/components/support-extra-controls"
 import { TicketThread } from "@/components/ticket-thread"
 import { requireUser } from "@/lib/auth/session"
 import { db, schema } from "@/lib/db"
@@ -77,6 +78,18 @@ export default async function TicketPage({
         ticketId={ticket.id}
         closed={ticket.status === "closed"}
       />
+
+      {(ticket.status === "resolved" || ticket.status === "closed") && (
+        <Section title="Ton avis sur notre aide">
+          {ticket.ratedAt && ticket.rating ? (
+            <p className="flex items-center gap-2 text-sm">
+              Merci ! Ta note : <Stars value={ticket.rating} />
+            </p>
+          ) : (
+            <RatingForm ticketId={ticket.id} />
+          )}
+        </Section>
+      )}
     </>
   )
 }

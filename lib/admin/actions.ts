@@ -208,6 +208,7 @@ export async function setServerLimit(userId: string, formData: FormData) {
     limite: limit.data,
   })
   revalidatePath("/admin/users")
+  revalidatePath(`/admin/users/${userId}`)
 }
 
 export async function runRenewalsNow(): Promise<AdminState> {

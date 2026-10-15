@@ -26,6 +26,8 @@ type Props = {
   mode: "login" | "register"
   /** Inscription : documents à accepter et politique de confidentialité. */
   legal?: { required: DocLink[]; privacy: DocLink | null }
+  /** Code de parrainage (?ref=…). */
+  referral?: string
   action: (prev: AuthState, formData: FormData) => Promise<AuthState>
 }
 
@@ -48,7 +50,7 @@ const copy = {
   },
 } as const
 
-export function AuthForm({ mode, action, legal }: Props) {
+export function AuthForm({ mode, action, legal, referral }: Props) {
   const [state, formAction, pending] = useActionState(action, undefined)
   const c = copy[mode]
 
@@ -60,6 +62,20 @@ export function AuthForm({ mode, action, legal }: Props) {
       </CardHeader>
       <CardContent>
         <form action={formAction}>
+          {mode === "register" && (
+            <>
+              {referral && <input type="hidden" name="ref" value={referral} />}
+              {/* Champ piège : invisible pour un humain, rempli par les robots. */}
+              <input
+                type="text"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                className="absolute left-[-9999px] h-0 w-0 opacity-0"
+              />
+            </>
+          )}
           <FieldGroup>
             {mode === "register" && (
               <Field>
@@ -132,6 +148,16 @@ export function AuthForm({ mode, action, legal }: Props) {
                   </span>
                 </label>
               </Field>
+            )}
+            {mode === "login" && (
+              <p className="-mt-2 text-right text-sm">
+                <Link
+                  className="text-muted-foreground underline"
+                  href="/forgot-password"
+                >
+                  Mot de passe oublié ?
+                </Link>
+              </p>
             )}
             {state?.error && (
               <p role="alert" className="text-sm text-destructive">

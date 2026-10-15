@@ -29,7 +29,15 @@ import {
 } from "@/lib/renewals"
 import { cancelReservation, confirmAssignment } from "@/lib/ipam/service"
 import { resolveNetwork, specForServer } from "@/lib/servers/network-plan"
+import {
+  invoiceOrder,
+  invoicingFor,
+  orderGraceExpiry,
+  renewalInvoice,
+  tryAutoPay,
+} from "@/lib/billing/service"
 import { chargeForPlan, refundCharge } from "@/lib/wallet/billing"
+import { emitEvent } from "@/lib/webhooks/service"
 import {
   createVps,
   getVpsAddresses,
@@ -113,6 +121,8 @@ export async function createServer(
   }
 
   const localId = crypto.randomUUID()
+  // Mode factures : service actif pendant le délai de paiement de la commande.
+  const invoicing = await invoicingFor(plan)
 
   // Crédits (si la facturation est activée) : débit avant la création,
   // remboursé si elle échoue.
@@ -201,7 +211,9 @@ export async function createServer(
       ipAddressId: net.addressId,
       netSyncState: observedMatches ? "synced" : "pending",
       netUpdatedAt: new Date(),
-      expiresAt: newExpiry(plan.periodDays),
+      expiresAt: invoicing
+        ? orderGraceExpiry(invoicing)
+        : newExpiry(plan.periodDays),
       lastRenewedAt: new Date(),
     })
 
@@ -249,6 +261,30 @@ export async function createServer(
     id: localId,
     label: name,
   })
+  void emitEvent("service.created", {
+    type: "vps",
+    serviceId: localId,
+    userId: user.id,
+    planId: plan.id,
+  })
+  if (invoicing) {
+    await invoiceOrder({
+      userId: user.id,
+      serviceType: "vps",
+      serviceId: localId,
+      serviceName: name,
+      plan,
+      dueAt: orderGraceExpiry(invoicing),
+    }).catch((e) =>
+      reportFailure(
+        "provisioning",
+        "Facture de commande non émise",
+        "facturation",
+        e,
+        { vps: localId }
+      )
+    )
+  }
   revalidatePath("/dashboard")
   redirect(`/servers/${localId}`)
 }
@@ -462,6 +498,11 @@ export async function renewServer(serverId: string): Promise<ActionState> {
   const server = await getAccessibleServer(serverId)
   if (!server) return { error: "VPS introuvable" }
   if (!server.expiresAt) return { error: "Ce VPS n'a pas d'échéance" }
+  if (server.cancelAtPeriodEnd) {
+    return {
+      error: "Annulation programmée : conserve le service pour le renouveler.",
+    }
+  }
   if (server.suspended && server.suspendReason !== "expired") {
     return { error: "VPS suspendu par un administrateur" }
   }
@@ -495,8 +536,29 @@ export async function renewServer(serverId: string): Promise<ActionState> {
     }
   }
 
-  // Crédits (si la facturation est activée) : payés par le propriétaire.
   const actor = await requireUser()
+
+  // Mode factures : le renouvellement passe par une facture (réglée
+  // automatiquement par le solde si possible, sinon page de paiement).
+  if (plan && (await invoicingFor(plan))) {
+    const inv = await renewalInvoice({
+      userId: server.userId,
+      serviceType: "vps",
+      serviceId: server.id,
+      serviceName: server.name,
+      plan,
+      expiresAt: server.expiresAt,
+    })
+    if (!inv)
+      return { error: "Facture de renouvellement impossible à émettre." }
+    if (inv.status === "unpaid" && !(await tryAutoPay(inv))) {
+      redirect(`/invoices/${inv.id}`)
+    }
+    revalidatePath(`/servers/${server.id}`)
+    return undefined
+  }
+
+  // Crédits (si la facturation est activée) : payés par le propriétaire.
   const renewKey = `renew:${server.id}:${server.lastRenewedAt?.getTime() ?? 0}`
   const charge = plan
     ? await chargeForPlan({

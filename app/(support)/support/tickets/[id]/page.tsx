@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import { and, eq, inArray } from "drizzle-orm"
 
 import { ErrorState, PageHeader, Section, StatusBadge } from "@/components/kit"
+import { Stars } from "@/components/support-extra-controls"
 import { StaffControls, StaffReplyForm } from "@/components/ticket-forms"
 import { TicketThread } from "@/components/ticket-thread"
 import { aiConfigured } from "@/lib/ai/openrouter"
@@ -123,6 +124,17 @@ export default async function StaffTicketPage({
       : Promise.resolve(null),
   ])
 
+  const canned = canReply
+    ? await db
+        .select({
+          id: schema.cannedResponses.id,
+          title: schema.cannedResponses.title,
+          body: schema.cannedResponses.body,
+        })
+        .from(schema.cannedResponses)
+        .orderBy(schema.cannedResponses.title)
+    : []
+
   return (
     <>
       <PageHeader
@@ -161,6 +173,17 @@ export default async function StaffTicketPage({
         />
       </Section>
 
+      {ticket.rating && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border p-3 text-sm">
+          <span className="font-medium">Avis du client</span>
+          <Stars value={ticket.rating} />
+          {ticket.ratingComment && (
+            <span className="text-muted-foreground">
+              « {ticket.ratingComment} »
+            </span>
+          )}
+        </div>
+      )}
       {(customer || server || site) && (
         <Section title="Contexte">
           <dl className="grid gap-3 text-sm sm:grid-cols-3">
@@ -217,6 +240,8 @@ export default async function StaffTicketPage({
           canReply={canReply}
           canInternal={canInternal}
           canAi={canAi && aiConfigured()}
+          canned={canned}
+          customerName={customer?.name ?? ""}
         />
       )}
     </>

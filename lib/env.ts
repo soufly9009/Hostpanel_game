@@ -9,6 +9,11 @@ export const envSchema = z.object({
   DATABASE_AUTH_TOKEN: optional(z.string()),
   ADMIN_TOKEN: optional(z.string().min(16)),
   /**
+   * Clé de chiffrement des secrets stockés en base (2FA). Absente = secrets
+   * stockés en clair. Ne plus la changer une fois la 2FA utilisée.
+   */
+  APP_SECRET: optional(z.string().min(32, "32 caractères minimum")),
+  /**
    * Clé maîtresse de l'API REST /api/v1 (toutes les portées). Format
    * « sou_… ». Les autres clés se créent dans /admin/api.
    */
@@ -82,6 +87,38 @@ export const envSchema = z.object({
   OPENROUTER_MODEL: optional(
     z.string().regex(/^[\w.-]+\/[\w.:-]+:free$/, "modèle :free requis")
   ),
+  /**
+   * Pterodactyl (serveurs de jeu). Les clients n'ont AUCUN accès au panel
+   * Pterodactyl : tout passe par l'API. Clé « Application » (ptla_) pour
+   * créer/suspendre/supprimer, clé « Client » (ptlc_) d'un compte ADMIN
+   * Pterodactyl pour l'alimentation, la console et les ressources.
+   */
+  PTERODACTYL_URL: optional(z.url().transform((u) => u.replace(/\/+$/, ""))),
+  PTERODACTYL_APP_KEY: optional(
+    z.string().regex(/^ptla_/, "clé ptla_… requise")
+  ),
+  PTERODACTYL_CLIENT_KEY: optional(
+    z.string().regex(/^ptlc_/, "clé ptlc_… requise")
+  ),
+  /** Compte Pterodactyl propriétaire de tous les serveurs (identifiant numérique). */
+  PTERODACTYL_OWNER_ID: optional(z.coerce.number().int().min(1)),
+  /** Serveurs de jeu maximum par client (les admins n'ont pas de limite). */
+  PTERODACTYL_SERVER_LIMIT: z.coerce.number().int().min(0).max(100).default(2),
+  /**
+   * E-mails (SMTP). Absents = aucun envoi (les messages restent visibles
+   * dans Admin → E-mails avec le statut « ignoré »).
+   */
+  SMTP_HOST: optional(z.string()),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  /** true = TLS direct (port 465) ; false = STARTTLS si proposé. */
+  SMTP_SECURE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  SMTP_USER: optional(z.string()),
+  SMTP_PASSWORD: optional(z.string()),
+  /** Expéditeur, ex. « GameHost <no-reply@exemple.com> ». */
+  MAIL_FROM: optional(z.string().min(3)),
   /** Snapshots automatiques conservés par VPS. */
   SNAPSHOT_AUTO_KEEP: z.coerce.number().int().min(1).max(30).default(3),
   /** true : journalise aussi les lectures (très verbeux). */
@@ -99,6 +136,15 @@ export const envSchema = z.object({
 export const env = envSchema.parse(process.env)
 
 export const pleskConfigured = Boolean(env.PLESK_URL && env.PLESK_API_KEY)
+
+export const mailConfigured = Boolean(env.SMTP_HOST && env.MAIL_FROM)
+
+export const pterodactylConfigured = Boolean(
+  env.PTERODACTYL_URL &&
+  env.PTERODACTYL_APP_KEY &&
+  env.PTERODACTYL_CLIENT_KEY &&
+  env.PTERODACTYL_OWNER_ID
+)
 
 export const proxmoxConfigured = Boolean(
   env.PROXMOX_URL && env.PROXMOX_TOKEN_ID && env.PROXMOX_TOKEN_SECRET

@@ -25,6 +25,13 @@ export async function logActivity(
       | "wallet"
       | "legal"
       | "api"
+      | "game"
+      | "invoice"
+      | "content"
+      | "email"
+      | "security"
+      | "quote"
+      | "webhook"
     id?: string
     label?: string
   }

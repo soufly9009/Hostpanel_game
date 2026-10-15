@@ -35,6 +35,7 @@ export const KIND_LABEL: Record<string, string> = {
   purchase: "Commande",
   renewal: "Renouvellement",
   refund: "Remboursement",
+  invoice: "Facture",
 }
 
 /** Carte cadeau : XXXX-XXXX-XXXX-XXXX (alphabet sans caractères ambigus). */

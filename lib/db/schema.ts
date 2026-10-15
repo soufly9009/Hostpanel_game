@@ -48,9 +48,20 @@ export const users = sqliteTable(
     serverLimit: integer("server_limit").notNull().default(1),
     /** Solde de crédits fictifs, en centimes (mis à jour avec le grand livre). */
     balanceCents: integer("balance_cents").notNull().default(0),
+    /** 2FA TOTP : secret (chiffré si APP_SECRET), actif si `totpEnabledAt`. */
+    totpSecret: text("totp_secret"),
+    totpEnabledAt: integer("totp_enabled_at", { mode: "timestamp" }),
+    /** Codes de secours : empreintes SHA-256, consommés une fois. */
+    recoveryCodes: text("recovery_codes", { mode: "json" }).$type<string[]>(),
+    /** Parrainage : code personnel et parrain éventuel. */
+    referralCode: text("referral_code"),
+    referredBy: text("referred_by"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("users_email_idx").on(t.email)]
+  (t) => [
+    uniqueIndex("users_email_idx").on(t.email),
+    uniqueIndex("users_referral_idx").on(t.referralCode),
+  ]
 )
 
 export const sessions = sqliteTable(
@@ -61,6 +72,10 @@ export const sessions = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    /** Navigateur et adresse IP tronquée (/24, /48), pour l'utilisateur. */
+    userAgent: text("user_agent"),
+    ipHint: text("ip_hint"),
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
     createdAt: createdAt(),
   },
   (t) => [index("sessions_user_idx").on(t.userId)]
@@ -138,6 +153,10 @@ export const servers = sqliteTable(
     expiresAt: integer("expires_at", { mode: "timestamp" }),
     /** Dernier renouvellement manuel (création comprise) : 1 par période. */
     lastRenewedAt: integer("last_renewed_at", { mode: "timestamp" }),
+    /** Annulation validée : supprimé à l'échéance, plus de facture. */
+    cancelAtPeriodEnd: integer("cancel_at_period_end", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: createdAt(),
   },
   (t) => [
@@ -197,6 +216,13 @@ export const activityLogs = sqliteTable(
         "wallet",
         "legal",
         "api",
+        "game",
+        "invoice",
+        "content",
+        "email",
+        "security",
+        "quote",
+        "webhook",
       ],
     }),
     targetId: text("target_id"),
@@ -618,6 +644,9 @@ export type EventLevel = (typeof EVENT_LEVELS)[number]
 export const EVENT_CATEGORIES = [
   "proxmox",
   "plesk",
+  "pterodactyl",
+  "billing",
+  "email",
   "vps",
   "provisioning",
   "renewals",
@@ -775,6 +804,10 @@ export const tickets = sqliteTable(
       .default(sql`(unixepoch())`),
     createdAt: createdAt(),
     closedAt: integer("closed_at", { mode: "timestamp" }),
+    /** Satisfaction du client (1 à 5) après résolution. */
+    rating: integer("rating"),
+    ratingComment: text("rating_comment"),
+    ratedAt: integer("rated_at", { mode: "timestamp" }),
   },
   (t) => [
     uniqueIndex("tickets_number_idx").on(t.number),
@@ -824,6 +857,7 @@ export const WALLET_KINDS = [
   "purchase", // commande d'un VPS
   "renewal", // renouvellement d'un VPS
   "refund",
+  "invoice", // règlement d'une facture
 ] as const
 export type WalletKind = (typeof WALLET_KINDS)[number]
 
@@ -1044,3 +1078,581 @@ export const apiKeys = sqliteTable(
 )
 
 export type ApiKey = typeof apiKeys.$inferSelect
+
+/* ───────────── Serveurs de jeu (Pterodactyl) ───────────── */
+
+/** Offre de serveur de jeu : egg Pterodactyl + ressources. */
+export const gamePlans = sqliteTable("game_plans", {
+  id: id(),
+  name: text("name").notNull(),
+  description: text("description"),
+  /** Prix par période (crédits si la facturation est activée). */
+  priceCents: integer("price_cents").notNull().default(0),
+  nestId: integer("nest_id").notNull(),
+  eggId: integer("egg_id").notNull(),
+  /** Libellé de l'egg (ex. « Paper »), pour l'affichage. */
+  eggName: text("egg_name"),
+  /** Emplacement Pterodactyl où déployer (choix automatique du nœud). */
+  locationId: integer("location_id").notNull(),
+  memoryMb: integer("memory_mb").notNull(),
+  diskMb: integer("disk_mb").notNull(),
+  /** 100 = un cœur ; 0 = illimité. */
+  cpuPercent: integer("cpu_percent").notNull().default(100),
+  databases: integer("databases").notNull().default(0),
+  backups: integer("backups").notNull().default(0),
+  /** Variables d'environnement imposées (sinon valeurs par défaut de l'egg). */
+  environment: text("environment", { mode: "json" })
+    .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
+  /** null = RENEW_PERIOD_DAYS. */
+  periodDays: integer("period_days"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: createdAt(),
+})
+
+export const gameServers = sqliteTable(
+  "game_servers",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    planId: text("plan_id").references(() => gamePlans.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    /** Identifiants Pterodactyl : numérique (API Application) et court (API Client). */
+    pteroId: integer("ptero_id").notNull(),
+    pteroIdentifier: text("ptero_identifier").notNull(),
+    pteroUuid: text("ptero_uuid").notNull(),
+    /** Adresse de connexion (allocation par défaut). */
+    address: text("address"),
+    suspended: integer("suspended", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    suspendReason: text("suspend_reason", { enum: ["expired", "admin"] }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }),
+    lastRenewedAt: integer("last_renewed_at", { mode: "timestamp" }),
+    cancelAtPeriodEnd: integer("cancel_at_period_end", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("game_servers_ptero_idx").on(t.pteroId),
+    index("game_servers_user_idx").on(t.userId),
+  ]
+)
+
+export type GamePlan = typeof gamePlans.$inferSelect
+export type GameServer = typeof gameServers.$inferSelect
+
+/* ───────────── Facturation (factures, avoirs, paiements, commandes) ───────────── */
+
+/** Coordonnées de facturation du client (mentions obligatoires sur facture). */
+export const billingProfiles = sqliteTable("billing_profiles", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  fullName: text("full_name"),
+  company: text("company"),
+  address1: text("address1"),
+  address2: text("address2"),
+  postalCode: text("postal_code"),
+  city: text("city"),
+  /** Code pays ISO 3166-1 alpha-2. */
+  country: text("country").notNull().default("FR"),
+  vatNumber: text("vat_number"),
+  phone: text("phone"),
+  /** Payer automatiquement les factures avec le solde de crédits. */
+  autoPayWithCredits: integer("auto_pay_with_credits", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+/** Parties figées sur la facture (une facture émise ne change plus). */
+export type InvoiceParty = {
+  name: string
+  company?: string | null
+  lines: string[]
+  vatNumber?: string | null
+  extra?: string[]
+  email?: string | null
+}
+
+export const INVOICE_STATUSES = [
+  "unpaid",
+  "paid",
+  "cancelled",
+  "refunded",
+] as const
+
+/**
+ * Facture ou avoir. Numérotation continue par préfixe et année
+ * (`invoice_sequences`). Conservée même si le compte est supprimé
+ * (obligation légale) : `user_id` passe alors à null.
+ */
+export const invoices = sqliteTable(
+  "invoices",
+  {
+    id: id(),
+    number: text("number").notNull(),
+    type: text("type", { enum: ["invoice", "credit_note"] })
+      .notNull()
+      .default("invoice"),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    status: text("status", { enum: INVOICE_STATUSES })
+      .notNull()
+      .default("unpaid"),
+    currency: text("currency").notNull().default("EUR"),
+    /** Montants en centimes : HT, taxe, TTC. Négatifs pour un avoir. */
+    subtotalCents: integer("subtotal_cents").notNull(),
+    taxCents: integer("tax_cents").notNull(),
+    totalCents: integer("total_cents").notNull(),
+    /** Taux en points de base (2000 = 20 %). */
+    taxRateBp: integer("tax_rate_bp").notNull().default(0),
+    taxLabel: text("tax_label").notNull().default("TVA"),
+    /** Mentions légales (exonération, pénalités de retard…). */
+    legalMentions: text("legal_mentions", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    seller: text("seller", { mode: "json" }).$type<InvoiceParty>().notNull(),
+    buyer: text("buyer", { mode: "json" }).$type<InvoiceParty>().notNull(),
+    issuedAt: integer("issued_at", { mode: "timestamp" }).notNull(),
+    dueAt: integer("due_at", { mode: "timestamp" }).notNull(),
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    /** Avoir : facture d'origine. */
+    relatedInvoiceId: text("related_invoice_id"),
+    notes: text("notes"),
+    /** Rappels envoyés (pour ne pas les répéter). */
+    remindersSent: integer("reminders_sent").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("invoices_number_idx").on(t.number),
+    index("invoices_user_idx").on(t.userId, t.issuedAt),
+    index("invoices_status_idx").on(t.status, t.dueAt),
+  ]
+)
+
+export const invoiceItems = sqliteTable(
+  "invoice_items",
+  {
+    id: id(),
+    invoiceId: text("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    description: text("description").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    /** Prix unitaire HT (centimes). */
+    unitCents: integer("unit_cents").notNull(),
+    /** Total HT de la ligne. */
+    totalCents: integer("total_cents").notNull(),
+    /** Service concerné : prolongé au paiement. */
+    serviceType: text("service_type", { enum: ["vps", "game"] }),
+    serviceId: text("service_id"),
+    kind: text("kind", { enum: ["order", "renewal", "custom"] })
+      .notNull()
+      .default("custom"),
+    /** Renouvellement : échéance couverte (évite deux factures pour la même période). */
+    periodKey: integer("period_key"),
+    /** Effet sur le service déjà appliqué (paiement traité). */
+    applied: integer("applied", { mode: "boolean" }).notNull().default(false),
+  },
+  (t) => [
+    index("invoice_items_invoice_idx").on(t.invoiceId),
+    uniqueIndex("invoice_items_period_idx").on(
+      t.serviceType,
+      t.serviceId,
+      t.periodKey
+    ),
+  ]
+)
+
+/** Compteurs de numérotation continue (ex. « FA-2026 » → 123). */
+export const invoiceSequences = sqliteTable("invoice_sequences", {
+  key: text("key").primaryKey(),
+  last: integer("last").notNull().default(0),
+})
+
+export const PAYMENT_METHODS = [
+  "credits",
+  "bank_transfer",
+  "manual",
+  "card",
+  "paypal",
+] as const
+
+export const payments = sqliteTable(
+  "payments",
+  {
+    id: id(),
+    invoiceId: text("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "restrict" }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    method: text("method", { enum: PAYMENT_METHODS }).notNull(),
+    /** Négatif pour un remboursement. */
+    amountCents: integer("amount_cents").notNull(),
+    /** Référence externe (virement, transaction de la passerelle). */
+    reference: text("reference"),
+    note: text("note"),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("payments_invoice_idx").on(t.invoiceId)]
+)
+
+export const orders = sqliteTable(
+  "orders",
+  {
+    id: id(),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    invoiceId: text("invoice_id"),
+    serviceType: text("service_type", { enum: ["vps", "game"] }).notNull(),
+    serviceId: text("service_id"),
+    description: text("description").notNull(),
+    status: text("status", {
+      enum: ["pending", "active", "cancelled", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("orders_user_idx").on(t.userId, t.createdAt)]
+)
+
+export type BillingProfile = typeof billingProfiles.$inferSelect
+export type Invoice = typeof invoices.$inferSelect
+export type InvoiceItem = typeof invoiceItems.$inferSelect
+export type Payment = typeof payments.$inferSelect
+export type Order = typeof orders.$inferSelect
+
+/* ───────────── E-mails ───────────── */
+
+/** Modèle modifiable ; variables {{nom}} remplacées à l'envoi. */
+export const emailTemplates = sqliteTable("email_templates", {
+  key: text("key").primaryKey(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedBy: text("updated_by"),
+})
+
+/**
+ * File d'envoi persistante. Le corps est conservé jusqu'à l'envoi puis
+ * effacé (seuls destinataire, sujet et statut restent pour le suivi).
+ */
+export const emailQueue = sqliteTable(
+  "email_queue",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    toAddress: text("to_address").notNull(),
+    template: text("template").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body"),
+    status: text("status", {
+      enum: ["pending", "sent", "failed", "skipped"],
+    })
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
+    lastError: text("last_error"),
+    sentAt: integer("sent_at", { mode: "timestamp" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("email_queue_state_idx").on(t.status, t.nextAttemptAt),
+    index("email_queue_created_idx").on(t.createdAt),
+  ]
+)
+
+/** Jeton de réinitialisation (seule l'empreinte est stockée, usage unique). */
+export const passwordResets = sqliteTable(
+  "password_resets",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    usedAt: integer("used_at", { mode: "timestamp" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("password_resets_hash_idx").on(t.tokenHash),
+    index("password_resets_user_idx").on(t.userId),
+  ]
+)
+
+export type EmailTemplate = typeof emailTemplates.$inferSelect
+
+/* ───────────── Fiche client : notes internes ───────────── */
+
+export const clientNotes = sqliteTable(
+  "client_notes",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    author: text("author").notNull(),
+    body: text("body").notNull(),
+    isPinned: integer("is_pinned", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [index("client_notes_user_idx").on(t.userId, t.createdAt)]
+)
+
+/* ───────────── Annonces et base de connaissances ───────────── */
+
+export const announcements = sqliteTable(
+  "announcements",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary"),
+    body: text("body").notNull(),
+    isPublished: integer("is_published", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
+    author: text("author"),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("announcements_slug_idx").on(t.slug),
+    index("announcements_pub_idx").on(t.isPublished, t.publishedAt),
+  ]
+)
+
+export const kbCategories = sqliteTable(
+  "kb_categories",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    position: integer("position").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("kb_categories_slug_idx").on(t.slug)]
+)
+
+export const kbArticles = sqliteTable(
+  "kb_articles",
+  {
+    id: id(),
+    categoryId: text("category_id").references(() => kbCategories.id, {
+      onDelete: "set null",
+    }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    isPublished: integer("is_published", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    views: integer("views").notNull().default(0),
+    author: text("author"),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("kb_articles_slug_idx").on(t.slug),
+    index("kb_articles_cat_idx").on(t.categoryId),
+  ]
+)
+
+export type Announcement = typeof announcements.$inferSelect
+export type KbCategory = typeof kbCategories.$inferSelect
+export type KbArticle = typeof kbArticles.$inferSelect
+
+/* ───────────── Sécurité : historique des connexions ───────────── */
+
+export const loginEvents = sqliteTable(
+  "login_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /** success | bad_password | mfa_failed | mfa_required | blocked */
+    result: text("result").notNull(),
+    ipHint: text("ip_hint"),
+    userAgent: text("user_agent"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("login_events_user_idx").on(t.userId, t.createdAt)]
+)
+
+/* ───────────── Parrainage ───────────── */
+
+/** Récompense versée au parrain (une seule par filleul). */
+export const referralRewards = sqliteTable(
+  "referral_rewards",
+  {
+    id: id(),
+    referrerId: text("referrer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    refereeId: text("referee_id").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("referral_rewards_referee_idx").on(t.refereeId),
+    index("referral_rewards_referrer_idx").on(t.referrerId),
+  ]
+)
+
+/* ───────────── Devis ───────────── */
+
+export const quotes = sqliteTable(
+  "quotes",
+  {
+    id: id(),
+    number: text("number").notNull(),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    status: text("status", {
+      enum: ["sent", "accepted", "declined", "cancelled"],
+    })
+      .notNull()
+      .default("sent"),
+    currency: text("currency").notNull().default("EUR"),
+    subtotalCents: integer("subtotal_cents").notNull(),
+    taxCents: integer("tax_cents").notNull(),
+    totalCents: integer("total_cents").notNull(),
+    taxRateBp: integer("tax_rate_bp").notNull().default(0),
+    taxLabel: text("tax_label").notNull().default("TVA"),
+    /** Lignes telles que saisies (prix selon le réglage TTC/HT). */
+    lines: text("lines", { mode: "json" })
+      .$type<
+        { description: string; quantity: number; unitPriceCents: number }[]
+      >()
+      .notNull(),
+    notes: text("notes"),
+    validUntil: integer("valid_until", { mode: "timestamp" }).notNull(),
+    invoiceId: text("invoice_id"),
+    createdBy: text("created_by"),
+    respondedAt: integer("responded_at", { mode: "timestamp" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("quotes_number_idx").on(t.number),
+    index("quotes_user_idx").on(t.userId),
+  ]
+)
+
+export type Quote = typeof quotes.$inferSelect
+
+/* ───────────── Webhooks sortants ───────────── */
+
+export const webhooks = sqliteTable("webhooks", {
+  id: id(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  /** Clé de signature HMAC-SHA256 (en-tête X-Webhook-Signature). */
+  secret: text("secret").notNull(),
+  events: text("events", { mode: "json" }).$type<string[]>().notNull(),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdBy: text("created_by"),
+  createdAt: createdAt(),
+})
+
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    payload: text("payload").notNull(),
+    status: text("status", { enum: ["pending", "sent", "failed"] })
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
+    responseCode: integer("response_code"),
+    lastError: text("last_error"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("webhook_deliveries_state_idx").on(t.status, t.nextAttemptAt),
+    index("webhook_deliveries_hook_idx").on(t.webhookId, t.createdAt),
+  ]
+)
+
+export type Webhook = typeof webhooks.$inferSelect
+
+/* ───────────── Support : réponses prédéfinies ───────────── */
+
+export const cannedResponses = sqliteTable("canned_responses", {
+  id: id(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdBy: text("created_by"),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  createdAt: createdAt(),
+})
+
+/* ───────────── Demandes d'annulation de service ───────────── */
+
+export const cancellationRequests = sqliteTable(
+  "cancellation_requests",
+  {
+    id: id(),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    serviceType: text("service_type", { enum: ["vps", "game"] }).notNull(),
+    serviceId: text("service_id").notNull(),
+    serviceName: text("service_name").notNull(),
+    mode: text("mode", { enum: ["immediate", "end_of_period"] }).notNull(),
+    reason: text("reason"),
+    status: text("status", {
+      enum: ["pending", "approved", "rejected", "withdrawn"],
+    })
+      .notNull()
+      .default("pending"),
+    handledBy: text("handled_by"),
+    handledAt: integer("handled_at", { mode: "timestamp" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("cancellation_status_idx").on(t.status, t.createdAt),
+    index("cancellation_service_idx").on(t.serviceType, t.serviceId),
+  ]
+)
+
+export type CancellationRequest = typeof cancellationRequests.$inferSelect

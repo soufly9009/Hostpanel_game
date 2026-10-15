@@ -445,7 +445,12 @@ export function GiftCardRowActions({
 export function WalletSettingsForm({
   settings,
 }: {
-  settings: { billingEnabled: boolean; signupBonusCents: number }
+  settings: {
+    billingEnabled: boolean
+    signupBonusCents: number
+    referralBonusCents: number
+    referralTrigger: "signup" | "first_payment"
+  }
 }) {
   const [state, action, pending] = useActionState(
     saveWalletSettingsAction,
@@ -475,6 +480,32 @@ export function WalletSettingsForm({
           className="w-32"
         />
       </label>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium">
+            Bonus de parrainage (crédits, 0 = désactivé)
+          </span>
+          <Input
+            name="referralBonus"
+            inputMode="decimal"
+            defaultValue={amountValue(settings.referralBonusCents)}
+            className="w-32"
+          />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium">Versé au parrain</span>
+          <select
+            name="referralTrigger"
+            defaultValue={settings.referralTrigger}
+            className={selectClass}
+          >
+            <option value="first_payment">
+              À la 1re facture réglée du filleul
+            </option>
+            <option value="signup">À l&apos;inscription du filleul</option>
+          </select>
+        </label>
+      </div>
       <Feedback state={state} />
       <div>
         <Button type="submit" disabled={pending}>

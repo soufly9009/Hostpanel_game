@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { count, desc, eq } from "drizzle-orm"
 
 import { UserRoleForm } from "@/components/role-controls"
@@ -48,7 +49,12 @@ export default async function AdminUsersPage() {
             {users.map((u) => (
               <tr key={u.id}>
                 <td className="p-3">
-                  <p className="font-medium">{u.name ?? "—"}</p>
+                  <Link
+                    href={`/admin/users/${u.id}`}
+                    className="font-medium underline-offset-2 hover:underline"
+                  >
+                    {u.name ?? "—"}
+                  </Link>
                   <p className="text-xs text-muted-foreground">{u.email}</p>
                 </td>
                 <td className="p-3">

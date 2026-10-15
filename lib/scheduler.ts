@@ -9,6 +9,10 @@ import {
   runAutoSnapshots,
   runNotificationChecks,
 } from "@/lib/jobs"
+import { runBillingJobs } from "@/lib/billing/jobs"
+import { flushEmails, purgeOldEmails } from "@/lib/mail/service"
+import { purgeLoginEvents } from "@/lib/security/mfa"
+import { flushWebhooks, purgeOldDeliveries } from "@/lib/webhooks/service"
 import { runRenewalCheck } from "@/lib/renewals"
 
 /**
@@ -85,13 +89,30 @@ export function startScheduler() {
       reportJobFailure("snapshots", e)
     }
 
-    // Rétention locale des événements (90 jours).
+    try {
+      const b = await runBillingJobs()
+      if (b) {
+        console.log(
+          `[billing] ${b.invoices} facture(s) · ${b.autoPaid} réglée(s) automatiquement · ${b.reminders} rappel(s)` +
+            (b.errors.length ? ` · ${b.errors.length} erreur(s)` : "")
+        )
+      }
+    } catch (e) {
+      reportJobFailure("billing", e)
+    }
+
+    // Rétention locale des événements et du journal d'e-mails (90 jours).
     await purgeOldEvents().catch(() => {})
+    await purgeOldEmails().catch(() => {})
+    await purgeOldDeliveries().catch(() => {})
+    await purgeLoginEvents().catch(() => {})
   }
 
   const flush = () => {
     // Jamais d'exception ici : la supervision ne doit pas faire tomber le panel.
     void flushPending(10).catch(() => {})
+    void flushEmails(20).catch(() => {})
+    void flushWebhooks(20).catch(() => {})
   }
 
   // Petit délai au démarrage, puis contrôle horaire.

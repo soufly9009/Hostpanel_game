@@ -1,5 +1,7 @@
 import "server-only"
 
+import { getBillingSettings } from "@/lib/billing/settings"
+
 import { formatCredits } from "./format"
 import { moveBalance } from "./service"
 import { getWalletSettings } from "./settings"
@@ -19,6 +21,10 @@ export async function chargeForPlan(opts: {
 }): Promise<{ ok: true; charged: number } | { ok: false; error: string }> {
   const price = opts.plan.priceCents
   if (price <= 0 || opts.actor.role === "admin") return { ok: true, charged: 0 }
+  // Mode factures : le paiement passe par une facture, pas par un débit direct.
+  if ((await getBillingSettings()).mode === "invoices") {
+    return { ok: true, charged: 0 }
+  }
   const settings = await getWalletSettings()
   if (!settings.billingEnabled) return { ok: true, charged: 0 }
 

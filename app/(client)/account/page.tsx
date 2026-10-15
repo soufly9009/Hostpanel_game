@@ -1,10 +1,13 @@
 import Link from "next/link"
 
 import { LogoutEverywhere, PasswordForm } from "@/components/account-forms"
+import { BillingProfileForm } from "@/components/billing-controls"
 import { PageHeader, Section } from "@/components/kit"
 import { Button } from "@/components/ui/button"
 import { ROLE_LABEL } from "@/lib/auth/roles"
 import { requireUser } from "@/lib/auth/session"
+import { db, schema } from "@/lib/db"
+import { eq } from "drizzle-orm"
 import { getBalance } from "@/lib/wallet/service"
 import { formatCredits } from "@/lib/wallet/format"
 
@@ -14,6 +17,10 @@ export const dynamic = "force-dynamic"
 export default async function AccountPage() {
   const user = await requireUser()
   const balance = (await getBalance(user.id)) ?? 0
+  const [profile] = await db
+    .select()
+    .from(schema.billingProfiles)
+    .where(eq(schema.billingProfiles.userId, user.id))
 
   return (
     <>
@@ -45,6 +52,26 @@ export default async function AccountPage() {
             </dd>
           </div>
         </dl>
+      </Section>
+
+      <Section
+        title="Coordonnées de facturation"
+        description="Figurent sur tes prochaines factures (obligatoires pour une facture conforme)."
+      >
+        <BillingProfileForm profile={profile ?? null} />
+      </Section>
+
+      <Section
+        title="Sécurité"
+        description="Double authentification, appareils connectés et historique des connexions."
+      >
+        <Button
+          variant="outline"
+          nativeButton={false}
+          render={<Link href="/account/security" />}
+        >
+          Gérer la sécurité du compte
+        </Button>
       </Section>
 
       <Section title="Mot de passe">

@@ -18,7 +18,7 @@ import {
 const DAY = 86_400_000
 
 /** Réserve atomiquement l'exécution d'une tâche (même mécanisme que les renouvellements). */
-async function claim(name: string, everyMs: number) {
+export async function claim(name: string, everyMs: number) {
   const now = new Date()
   await db.insert(schema.jobRuns).values({ name }).onConflictDoNothing()
   const res = await db

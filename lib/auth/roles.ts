@@ -54,6 +54,11 @@ export const SYSTEM_PERMISSIONS: PermissionDef[] = [
     description: "Générer des brouillons de réponse avec l'assistant IA.",
   },
   {
+    key: "tickets.macros",
+    label: "Gérer les réponses prédéfinies",
+    description: "Créer, modifier et supprimer les réponses types du support.",
+  },
+  {
     key: "users.view",
     label: "Voir les clients",
     description: "Consulter le profil du client lié à un ticket.",
@@ -78,6 +83,24 @@ export const SYSTEM_PERMISSIONS: PermissionDef[] = [
     key: "coupons.manage",
     label: "Coupons et cartes cadeaux",
     description: "Créer, modifier, désactiver et supprimer coupons et cartes.",
+  },
+  {
+    key: "billing.view",
+    label: "Voir les factures",
+    description:
+      "Consulter les factures, avoirs et paiements de tous les clients.",
+  },
+  {
+    key: "billing.manage",
+    label: "Gérer les factures",
+    description:
+      "Enregistrer un paiement, émettre un avoir, créer une facture manuelle.",
+  },
+  {
+    key: "content.manage",
+    label: "Annonces et aide",
+    description:
+      "Créer, modifier et supprimer les annonces et les articles d'aide.",
   },
   {
     key: "legal.edit",
