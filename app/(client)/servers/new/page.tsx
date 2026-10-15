@@ -47,6 +47,7 @@ export default async function NewServerPage() {
             description: p.description,
             price: formatPrice(p.priceCents),
             specs: planSpecs(p),
+            lxc: p.proxmox.virt === "lxc",
           }))}
         />
       )}

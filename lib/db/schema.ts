@@ -1656,3 +1656,39 @@ export const cancellationRequests = sqliteTable(
 )
 
 export type CancellationRequest = typeof cancellationRequests.$inferSelect
+
+/* ───────────── Applications installées dans les LXC ───────────── */
+
+export const APP_INSTALL_STATUSES = [
+  "queued",
+  "running",
+  "success",
+  "failed",
+] as const
+
+/** Installation d'une application du catalogue (file par VPS, en arrière-plan). */
+export const appInstalls = sqliteTable(
+  "app_installs",
+  {
+    id: id(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    appId: text("app_id").notNull(),
+    status: text("status", { enum: APP_INSTALL_STATUSES })
+      .notNull()
+      .default("queued"),
+    /** Fin de la sortie de l'installation (codes couleur retirés). */
+    log: text("log"),
+    requestedBy: text("requested_by"),
+    startedAt: integer("started_at", { mode: "timestamp" }),
+    finishedAt: integer("finished_at", { mode: "timestamp" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("app_installs_server_idx").on(t.serverId, t.createdAt),
+    index("app_installs_status_idx").on(t.status),
+  ]
+)
+
+export type AppInstall = typeof appInstalls.$inferSelect

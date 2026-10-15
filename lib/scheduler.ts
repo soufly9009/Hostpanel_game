@@ -9,6 +9,7 @@ import {
   runAutoSnapshots,
   runNotificationChecks,
 } from "@/lib/jobs"
+import { resumeAppQueues } from "@/lib/apps/service"
 import { runBillingJobs } from "@/lib/billing/jobs"
 import { flushEmails, purgeOldEmails } from "@/lib/mail/service"
 import { purgeLoginEvents } from "@/lib/security/mfa"
@@ -113,6 +114,7 @@ export function startScheduler() {
     void flushPending(10).catch(() => {})
     void flushEmails(20).catch(() => {})
     void flushWebhooks(20).catch(() => {})
+    void resumeAppQueues().catch(() => {})
   }
 
   // Petit délai au démarrage, puis contrôle horaire.

@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 
+import { AppsPanel } from "@/components/apps-panel"
 import { CancellationBox } from "@/components/cancellation-controls"
 import { FirewallPanel } from "@/components/firewall-panel"
 import { PageHeader, Section, StatusBadge } from "@/components/kit"
@@ -14,6 +15,7 @@ import { SshTerminal } from "@/components/ssh-terminal"
 import { TabNav } from "@/components/tab-nav"
 import { VpsPerformance } from "@/components/vps-performance"
 import { requireUser } from "@/lib/auth/session"
+import { hostExecConfigured } from "@/lib/proxmox/exec"
 import { db, schema } from "@/lib/db"
 import { formatMb } from "@/lib/format"
 import { allowedTemplates } from "@/lib/plans"
@@ -30,6 +32,7 @@ const TABS = [
   { id: "ip", label: "Adresse IP" },
   { id: "backups", label: "Sauvegardes" },
   { id: "ssh", label: "Accès SSH" },
+  { id: "apps", label: "Applications" },
   { id: "settings", label: "Paramètres" },
 ]
 
@@ -245,6 +248,41 @@ export default async function ServerPage({
           host={server.address ?? server.ipv6}
           disabled={server.suspended}
         />
+      )}
+
+      {tab === "apps" && (
+        <Section
+          title="Applications"
+          description="Installe en un clic des logiciels courants dans ton conteneur (Debian ou Ubuntu). L'installation se fait en arrière-plan."
+        >
+          <AppsPanel
+            serverId={server.id}
+            installs={(
+              await db
+                .select()
+                .from(schema.appInstalls)
+                .where(eq(schema.appInstalls.serverId, server.id))
+                .orderBy(desc(schema.appInstalls.createdAt))
+                .limit(30)
+            ).map((i) => ({
+              id: i.id,
+              appId: i.appId,
+              status: i.status,
+              log: i.log,
+              createdAt: i.createdAt.toISOString(),
+              finishedAt: i.finishedAt?.toISOString() ?? null,
+            }))}
+            disabledReason={
+              server.virt !== "lxc"
+                ? "Les applications en un clic sont réservées aux VPS conteneurs (LXC)."
+                : server.suspended
+                  ? "VPS suspendu."
+                  : !hostExecConfigured
+                    ? "Installation indisponible pour le moment (configuration de l'hôte)."
+                    : null
+            }
+          />
+        </Section>
       )}
 
       {tab === "settings" && (

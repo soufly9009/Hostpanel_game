@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react"
 
+import { AppPicker } from "@/components/apps-panel"
 import { NetworkPicker } from "@/components/network-picker"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,11 +15,15 @@ export type PlanOption = {
   description: string | null
   price: string
   specs: string[]
+  /** Conteneur LXC : applications installables à la création. */
+  lxc: boolean
 }
 
 export function CreateServerForm({ plans }: { plans: PlanOption[] }) {
   const [state, action, pending] = useActionState(createServer, undefined)
   const [planId, setPlanId] = useState(plans[0]?.id ?? "")
+  const [apps, setApps] = useState<string[]>([])
+  const isLxc = plans.find((p) => p.id === planId)?.lxc ?? false
 
   return (
     <form action={action} className="flex max-w-3xl flex-col gap-6">
@@ -79,6 +84,20 @@ export function CreateServerForm({ plans }: { plans: PlanOption[] }) {
         key={planId}
         endpoint={planId ? `/api/plans/${planId}/network` : null}
       />
+
+      {isLxc && (
+        <details className="rounded-xl border p-4">
+          <summary className="cursor-pointer text-sm font-medium">
+            Applications à installer (facultatif)
+            {apps.length > 0 && ` · ${apps.length} choisie(s)`}
+          </summary>
+          <p className="mt-2 mb-3 text-xs text-muted-foreground">
+            Installées automatiquement après la création (Debian / Ubuntu). Tu
+            pourras en ajouter plus tard depuis l&apos;onglet Applications.
+          </p>
+          <AppPicker selected={apps} onChange={setApps} name="apps" />
+        </details>
+      )}
 
       <div className="flex flex-col gap-2">
         <label htmlFor="password" className="text-sm font-medium">

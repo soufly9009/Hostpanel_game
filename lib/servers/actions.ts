@@ -19,7 +19,9 @@ import { getAccessibleServer } from "@/lib/servers/access"
 import { db, schema } from "@/lib/db"
 import { allowedTemplates, templateLabel } from "@/lib/plans"
 import { destroyServer, powerServer, setSuspended } from "@/lib/provision"
-import { enableRootSsh } from "@/lib/proxmox/exec"
+import { APP_IDS } from "@/lib/apps/catalog"
+import { queueInstalls } from "@/lib/apps/service"
+import { enableRootSsh, hostExecConfigured } from "@/lib/proxmox/exec"
 import { env } from "@/lib/env"
 import {
   extendedExpiry,
@@ -267,6 +269,18 @@ export async function createServer(
     userId: user.id,
     planId: plan.id,
   })
+  // Applications choisies à la commande (LXC) : installées en arrière-plan.
+  const apps = formData
+    .getAll("apps")
+    .map(String)
+    .filter((id) => APP_IDS.includes(id))
+  if (apps.length && cfg.virt === "lxc" && hostExecConfigured) {
+    const [created] = await db
+      .select()
+      .from(schema.servers)
+      .where(eq(schema.servers.id, localId))
+    if (created) await queueInstalls(created, apps, user.email).catch(() => [])
+  }
   if (invoicing) {
     await invoiceOrder({
       userId: user.id,
