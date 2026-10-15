@@ -1,0 +1,1 @@
+ALTER TABLE `servers` ADD `ssh_host_key` text;

@@ -1,0 +1,1 @@
+ALTER TABLE `servers` ADD `ipv6` text;

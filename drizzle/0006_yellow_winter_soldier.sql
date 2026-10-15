@@ -1,0 +1,1 @@
+ALTER TABLE `servers` ADD `last_renewed_at` integer;
